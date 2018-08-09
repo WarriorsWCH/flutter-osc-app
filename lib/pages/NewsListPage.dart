@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
 import 'NewsDetailPage.dart';
 import '../widgets/SlideView.dart';
+import '../util/NetUtils.dart';
+import '../api/Api.dart';
+import 'dart:async';
+import 'dart:convert';
 
 // 资讯列表页面
-class NewsListPage extends StatelessWidget {
+class NewsListPage extends StatefulWidget {
+  @override
+  State<StatefulWidget> createState() => new NewsListPageState();
+
+}
+
+
+class NewsListPageState extends State<NewsListPage> {
 
   // 轮播图数据
-  var slideData = [];
+  var slideData;
   // 列表数据
-  var listData = [];
+  var listData;
+  var curPage = 1;
+  var listTotalSize = 0;
+  //controller就是为了监听列表滚动事件而传入的，它是一个ScrollController对象，我们在NewsListPageState类中定义这个变量并初始化
+  ScrollController _controller = new ScrollController();
   // 列表中资讯标题的样式
   TextStyle titleStyle = new TextStyle(fontSize: 15.0);
   // 时间文本的样式
@@ -17,42 +32,88 @@ class NewsListPage extends StatelessWidget {
     fontSize: 12.0
   );
 
-  NewsListPage() {
-    // 这里做数据初始化，加入一些测试数据
-    for (int i = 0; i < 3; i++) {
-      Map map = new Map();
-      // 轮播图的资讯标题
-      map['title'] = 'Python 之父透露退位隐情，与核心开发团队产生隔阂';
-      // 轮播图的详情URL
-      map['detailUrl'] = 'https://www.oschina.net/news/98455/guido-van-rossum-resigns';
-      // 轮播图的图片URL
-      map['imgUrl'] = 'https://static.oschina.net/uploads/img/201807/30113144_1SRR.png';
-      slideData.add(map);
-    }
-    for (int i = 0; i < 30; i++) {
-      Map map = new Map();
-      // 列表item的标题
-      map['title'] = 'J2Cache 2.3.23 发布，支持 memcached 二级缓存';
-      // 列表item的作者头像URL
-      map['authorImg'] = 'https://static.oschina.net/uploads/user/0/12_50.jpg?t=1421200584000';
-      // 列表item的时间文本
-      map['timeStr'] = '2018/7/30';
-      // 列表item的资讯图片
-      map['thumb'] = 'https://static.oschina.net/uploads/logo/j2cache_N3NcX.png';
-      // 列表item的评论数
-      map['commCount'] = 5;
-      listData.add(map);
-    }
-
+  NewsListPageState() {
+    //监听列表是否滚动到底的事件
+    _controller.addListener(() {
+      // 表示列表的最大滚动距离
+      var maxScroll = _controller.position.maxScrollExtent;
+      // 表示当前列表已向下滚动的距离
+      var pixels = _controller.position.pixels;
+      // 如果两个值相等，表示滚动到底，并且如果列表没有加载完所有数据
+      if (maxScroll == pixels && listData.length < listTotalSize) {
+        // 当前页索引加1
+        curPage++;
+        // 获取下一页数据
+        getNewsList(true);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return new ListView.builder(
-      itemCount: listData.length * 2 + 1,
-      itemBuilder: (context, i) => renderRow(i)
-    );
+
+    //无数据时，显示Loading
+    if (listData == null) {
+      return new Center(
+        // CircularProgressIndicator是一个圆形的Loading进度条
+        child: new CircularProgressIndicator(),
+      );
+    } else {
+      // 有数据，显示ListView
+      Widget listView = new ListView.builder(
+          itemCount: listData.length * 2 + 1,
+          itemBuilder: (context, i) => renderRow(i),
+          controller: _controller,
+      );
+      return new RefreshIndicator(child: listView, onRefresh: _pullToRefresh);
+    }
   }
+
+  @override
+  void initState() {
+    super.initState();
+    getNewsList(false);
+  }
+
+  Future<Null> _pullToRefresh() async {
+    curPage = 1;
+    getNewsList(false);
+    return null;
+  }
+  // 从网络获取数据，isLoadMore表示是否是加载更多数据
+  getNewsList(bool isLoadMore) {
+    String url = Api.NEWS_LIST;
+    url += "?pageIndex=$curPage&pageSize=10";
+    print("newsListUrl: $url");
+    NetUtils.get(url).then((data) {
+      if (data != null) {
+        Map<String, dynamic> map = json.decode(data);
+        if (map['code'] == 0) {
+          var msg = map['msg'];
+          listTotalSize = msg['news']['total'];
+          var _listData = msg['news']['data'];
+          var _slideData = msg['slide'];
+          setState(() {
+            if (!isLoadMore) {
+              listData = _listData;
+              slideData = _slideData;
+            } else {
+              List list1 = new List();
+              list1.addAll(listData);
+              list1.addAll(_listData);
+              if (list1.length >= listTotalSize) {
+                list1.add("COMPLETE");
+              }
+              listData = list1;
+
+              slideData = _slideData;
+            }
+          });
+        }
+      }
+    });
+  }
+
 
   // 渲染列表item
   Widget renderRow(i) {
